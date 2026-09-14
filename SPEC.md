@@ -3,6 +3,7 @@
 | Rev | Date       | Change |
 |-----|------------|--------|
 | v1  | 2026-09-14 | Initial specification, written before any code. |
+| v3  | 2026-09-14 | After the full 1M verify run (all gates PASS, 174 s): resolved Q3 and Q4 (§10); noted that pipeline counters are per process (§6.5); verify report format now carries the three kill positions (§7). |
 | v2  | 2026-09-14 | After the first `verify.sh` run (200k rows): retry cap 30 s → 5 s (§6.3); DLQ entries auto-resolve on a later successful write (§6.4); ES 8 names the per-item rejection `document_parsing_exception`, not `mapper_parsing_exception` (§6.4); resolved Q1, Q2, Q5 (§10). |
 
 This document is the brief I hand to the coding agent. It states what must be built, the
@@ -200,6 +201,9 @@ no-op (409). Same-millisecond updates are not a problem because `version` is a c
 - Logs: JSON (pino), every significant transition has an `event` field
   (`backfill_started|backfill_resumed|backfill_done|batch_committed|sink_down|sink_up|dlq_item|crash_requested`).
 - `/api/status` aggregates everything for the UI; the UI polls it every second.
+- *(v3)* Counters (`records_written_total`, `duplicates_absorbed_total`, `sink_retry_total`) are per process:
+  they restart at 0 when the pipeline is restarted. Gauges are re-derived from Postgres on boot. G2's ES-side
+  evidence therefore only covers replays since the last restart; the consumer's counter is cumulative.
 
 ### 6.6 Simulation hooks (used by verify and the UI)
 - `POST /api/sim/crash-after-next-batch` → exit(1) after both sink acks, before checkpoint.
@@ -262,8 +266,11 @@ G5 observability ................ PASS
   The first measurement showed 500 rows/s — a bug (bigint ids arrived as strings and broke a
   gauge, every batch fell into the 1 s error sleep), not a capacity limit.
 - ~~Q2 Where to compute `records_per_second`.~~ **Resolved v2:** pipeline-side, 10 s sliding window.
-- Q3 Whether ES `refresh_interval` should be reset to `1s` after backfill for the Data screen.
-- Q4 How the consumer batches acks without losing the "independent service" property.
+- ~~Q3 ES `refresh_interval` after backfill.~~ **Resolved v3:** kept at 5 s always; the data screen is
+  "live enough" and the backfill does not suffer at 5 s. Listed in README capacity notes as a lever.
+- ~~Q4 Consumer batching vs independence.~~ **Resolved v3:** the consumer buffers up to `prefetch` deliveries
+  (or 200 ms), does one multi-row `INSERT … ON CONFLICT DO NOTHING RETURNING`, then `ack(last, allUpTo)`.
+  It knows nothing about the pipeline: only the queue name and the message shape.
 - ~~Q5 Exact CPU threshold for G3.~~ **Resolved v2:** measured 0.6–1.0 % during a 30 s outage; the
   15 % assertion stays as a generous ceiling.
 

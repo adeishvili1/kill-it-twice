@@ -1,0 +1,5 @@
+G1 resume after kill .............. PASS (killed at 306,000 / resumed at 306,000; killed at 608,000 / resumed at 608,000; killed at 801,500 / resumed at 801,500; 0 lost)
+G2 no duplicates .................. PASS (1,000,000 source / 1,000,000 es / 1,000,000 consumer / 0 dupes; replays absorbed: es 500, consumer 1,500)
+G3 sink outage .................... PASS (60s down, 0 lost, recovered in 4.3s, cpu 0.9%, 0.30 retries/s)
+G4 partial batch failure .......... PASS (497 written, 3 in DLQ, 3 replayed after fix)
+G5 observability .................. PASS (metrics+health+logs+ui answer position/throughput/lag/DLQ/health)
