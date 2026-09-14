@@ -12,7 +12,7 @@ export const config = {
   safetyWindowMs: num(process.env.SAFETY_WINDOW_MS, 2000),
   // sink retry policy
   retryBaseMs: num(process.env.RETRY_BASE_MS, 500),
-  retryMaxMs: num(process.env.RETRY_MAX_MS, 30000),
+  retryMaxMs: num(process.env.RETRY_MAX_MS, 5000),   // SPEC v2: was 30s; recovery after an outage is bounded by this cap
   esRequestTimeoutMs: num(process.env.ES_REQUEST_TIMEOUT_MS, 10000),
   esIndex: process.env.ES_INDEX ?? 'products',
   rabbitExchange: process.env.RABBIT_EXCHANGE ?? 'products.events',

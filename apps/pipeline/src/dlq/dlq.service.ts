@@ -11,6 +11,8 @@ export interface DlqEntry {
 
 @Injectable()
 export class DlqService {
+  /** cached open count so the hot path can skip the auto-resolve query when the DLQ is empty */
+  openCount = 0;
   constructor(private readonly db: DbService, private readonly metrics: MetricsService) {}
 
   /** Upsert keyed by (sink, record_id): a bad row touched again bumps attempts instead of flooding. */
@@ -60,6 +62,14 @@ export class DlqService {
   async refreshGauge() {
     const c = await this.counts();
     for (const [sink, n] of Object.entries(c)) this.metrics.dlqSize.set({ sink }, n);
+    this.openCount = Object.values(c).reduce((a, b) => a + b, 0);
     return c;
+  }
+
+  /** A record that was later written successfully (fixed at the source, re-synced) no longer belongs in the DLQ. */
+  async autoResolve(sink: string, ids: number[]) {
+    if (this.openCount === 0 || ids.length === 0) return;
+    const r = await this.db.query(`update dlq set status='resolved', updated_at=clock_timestamp() where sink=$1 and status='open' and record_id = any($2::bigint[]) returning record_id`, [sink, ids]);
+    if (r.length) { logger.info({ event: 'dlq_auto_resolved', sink, ids: r.map((x) => Number(x.record_id)) }); await this.refreshGauge(); }
   }
 }

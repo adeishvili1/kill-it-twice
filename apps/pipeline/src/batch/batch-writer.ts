@@ -64,6 +64,7 @@ export class BatchWriter {
       const c = await this.gate.retryUntilOk('es', () => this.es.writeBatch(pending));
       written += c.ok.length;
       duplicates += c.duplicates.length;
+      await this.dlq.autoResolve('es', [...c.ok, ...c.duplicates]);
       if (c.dlq.length) {
         await this.dlq.add('es', c.dlq.map((d) => ({ product: byId.get(d.id)!, error: d.error })), batchId, mode);
         dlqCount += c.dlq.length;
