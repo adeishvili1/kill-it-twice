@@ -8,7 +8,7 @@ services:
       POSTGRES_PASSWORD: app
       POSTGRES_DB: replication
     command: ["postgres", "-c", "shared_buffers=512MB", "-c", "max_wal_size=2GB", "-c", "log_min_duration_statement=2000"]
-    ports: ["5432:5432"]
+    ports: ["${PG_PORT:-5432}:5432"]
     volumes:
       - pgdata:/var/lib/postgresql/data
       - ./db/init:/docker-entrypoint-initdb.d:ro
@@ -25,6 +25,7 @@ services:
       xpack.security.enabled: "false"
       ES_JAVA_OPTS: "-Xms1g -Xmx1g"
       cluster.routing.allocation.disk.threshold_enabled: "false"
+      action.auto_create_index: "false"
     ports: ["9200:9200"]
     volumes:
       - esdata:/usr/share/elasticsearch/data
