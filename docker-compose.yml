@@ -1,0 +1,105 @@
+name: kit
+
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: app
+      POSTGRES_PASSWORD: app
+      POSTGRES_DB: replication
+    command: ["postgres", "-c", "shared_buffers=512MB", "-c", "max_wal_size=2GB", "-c", "log_min_duration_statement=2000"]
+    ports: ["5432:5432"]
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./db/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U app -d replication"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.15.0
+    environment:
+      discovery.type: single-node
+      xpack.security.enabled: "false"
+      ES_JAVA_OPTS: "-Xms1g -Xmx1g"
+      cluster.routing.allocation.disk.threshold_enabled: "false"
+    ports: ["9200:9200"]
+    volumes:
+      - esdata:/usr/share/elasticsearch/data
+    mem_limit: 2g
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:9200/_cluster/health?wait_for_status=yellow&timeout=5s >/dev/null"]
+      interval: 5s
+      timeout: 10s
+      retries: 40
+
+  rabbitmq:
+    image: rabbitmq:3.13-management
+    ports: ["5672:5672", "15672:15672"]
+    volumes:
+      - rmqdata:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  pipeline:
+    build: ./apps/pipeline
+    # Deliberately no restart policy: verify.sh must be able to observe the killed state
+    # before restarting. Resume-on-boot is what carries the G1 guarantee (see SPEC D9).
+    restart: "no"
+    environment:
+      PORT: 3000
+      DATABASE_URL: postgres://app:app@postgres:5432/replication
+      ELASTICSEARCH_URL: http://elasticsearch:9200
+      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672
+      BATCH_SIZE: ${BATCH_SIZE:-500}
+      INCREMENTAL_INTERVAL_MS: ${INCREMENTAL_INTERVAL_MS:-1000}
+      SAFETY_WINDOW_MS: ${SAFETY_WINDOW_MS:-2000}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    ports: ["3000:3000"]
+    depends_on:
+      postgres: { condition: service_healthy }
+      elasticsearch: { condition: service_healthy }
+      rabbitmq: { condition: service_healthy }
+
+  consumer:
+    build: ./apps/consumer
+    restart: unless-stopped
+    environment:
+      PORT: 3001
+      DATABASE_URL: postgres://app:app@postgres:5432/replication
+      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672
+      PREFETCH: ${CONSUMER_PREFETCH:-500}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    ports: ["3001:3001"]
+    depends_on:
+      postgres: { condition: service_healthy }
+      rabbitmq: { condition: service_healthy }
+
+  chaos:
+    build: ./apps/chaos
+    restart: unless-stopped
+    environment:
+      PORT: 3002
+      COMPOSE_PROJECT: kit
+    ports: ["3002:3002"]
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+
+  ui:
+    build: ./apps/ui
+    restart: unless-stopped
+    ports: ["4200:80"]
+    depends_on:
+      - pipeline
+      - consumer
+      - chaos
+
+volumes:
+  pgdata:
+  esdata:
+  rmqdata:
