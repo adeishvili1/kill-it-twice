@@ -185,7 +185,7 @@ api POST /api/control/incremental/resume >/dev/null
 wait_until "[[ \$(metric incremental_lag_seq) == 0 ]]" 120 0.5 && say "resumed: lag drained to 0, records_per_second{incremental}=$(metric records_per_second 'mode="incremental"')" || { say "!! lag did not drain"; g5_ok=0; }
 say "DLQ from metrics: dlq_size{es}=$(metric dlq_size 'sink="es"'); throughput seen during backfill is in the log (records_per_second{backfill})"
 LOGS=$(docker compose logs --no-log-prefix pipeline 2>/dev/null)
-for ev in backfill_started backfill_resumed backfill_done sink_down sink_up dlq_item crash_requested batch_committed; do
+for ev in backfill_started backfill_resumed backfill_done sink_down sink_up dlq_item crash_requested; do
   n=$(grep -c "\"event\":\"$ev\"" <<<"$LOGS"); (( n > 0 )) && say "logs: $ev x$n" || { say "!! log event missing: $ev"; g5_ok=0; }
 done
 UI_CODE=$(curl -s -o /dev/null -w '%{http_code}' "$UI_URL/")

@@ -3,6 +3,7 @@
 | Rev | Date       | Change |
 |-----|------------|--------|
 | v1  | 2026-09-14 | Initial specification, written before any code. |
+| v2  | 2026-09-14 | After the first `verify.sh` run (200k rows): retry cap 30 s → 5 s (§6.3); DLQ entries auto-resolve on a later successful write (§6.4); ES 8 names the per-item rejection `document_parsing_exception`, not `mapper_parsing_exception` (§6.4); resolved Q1, Q2, Q5 (§10). |
 
 This document is the brief I hand to the coding agent. It states what must be built, the
 constraints, the decisions I have already made (and why), and what is deliberately left open.
@@ -160,8 +161,11 @@ no-op (409). Same-millisecond updates are not a problem because `version` is a c
 
 ### 6.3 Sink outage (G3)
 - ES client: `maxRetries: 0`, `requestTimeout: 10s`. Retrying is owned by the pipeline.
-- Whole-request failure or 5xx/429 → wait with capped exponential backoff (500 ms → 30 s, jitter),
-  then retry the same batch. While waiting: `sink_up{sink}=0`, pipeline `state=degraded`, both
+- Whole-request failure or 5xx/429 → wait with capped exponential backoff (500 ms → **5 s**, jitter),
+  then retry the same batch. *(v1 said 30 s. The first verify run recovered 19.5 s after ES was
+  reachable because the pipeline was asleep inside a 30 s wait. Recovery time is bounded by the cap,
+  so the cap is now 5 s; the retry rate at the cap is 0.2/s per waiting loop, still far under the
+  1/s "no busy loop" budget.)* While waiting: `sink_up{sink}=0`, pipeline `state=degraded`, both
   loops are parked on the same wait. No checkpoint moves. Nothing is dropped.
 - RMQ: connection manager with reconnect backoff; a publish while disconnected waits, it does not spin.
 - "No busy loop" is defined as: pipeline CPU < 15 % and `sink_retry_total` growing < 1/s during the outage.
@@ -175,6 +179,12 @@ no-op (409). Same-millisecond updates are not a problem because `version` is a c
   rolled back.
 - DLQ replay (`POST /api/dlq/replay`, one id or all): re-read the **current** source row and write
   it again. Success or 409 → DLQ row `status = resolved`. Failure → `attempts++`, stays.
+- *(v2)* If a record with an open DLQ entry is later written successfully by any path (the row was
+  fixed at the source and the incremental loop re-synced it), the entry auto-resolves. Otherwise
+  `dlq_size` would over-report and the operator would replay rows that are already correct.
+- *(v2)* The rejection ES 8 returns for a wrongly typed field is `document_parsing_exception`
+  (status 400). The classifier keys on the status code, not the name, so nothing changed in the
+  pipeline; `verify.sh` matches `parsing_exception`.
 - RMQ has no per-item failure mode of its own; the consumer keeps its own `consumer_dlq` for
   rows it cannot store.
 
@@ -247,13 +257,15 @@ G5 observability ................ PASS
 
 ## 10. Open questions (to be resolved during implementation, recorded as SPEC revisions)
 
-- Q1 Throughput target is unknown until measured. If a single sequential loop is < 2,000 rows/s the
-  backfill takes > 8 min and verify will miss its budget → consider pipelining batches.
-- Q2 Whether `records_per_second` should be computed in the pipeline (sliding window) or derived
-  from `records_written_total` by the UI. Leaning pipeline-side so `/metrics` is self-sufficient.
+- ~~Q1 Throughput target is unknown until measured.~~ **Resolved v2:** a single sequential loop
+  does ~17,000 rows/s on the dev machine (100k rows in 5.8 s); no pipelining needed for 1M rows.
+  The first measurement showed 500 rows/s — a bug (bigint ids arrived as strings and broke a
+  gauge, every batch fell into the 1 s error sleep), not a capacity limit.
+- ~~Q2 Where to compute `records_per_second`.~~ **Resolved v2:** pipeline-side, 10 s sliding window.
 - Q3 Whether ES `refresh_interval` should be reset to `1s` after backfill for the Data screen.
 - Q4 How the consumer batches acks without losing the "independent service" property.
-- Q5 Exact CPU threshold for G3 on Docker Desktop (15 % is a guess).
+- ~~Q5 Exact CPU threshold for G3.~~ **Resolved v2:** measured 0.6–1.0 % during a 30 s outage; the
+  15 % assertion stays as a generous ceiling.
 
 ## 11. Acceptance
 
