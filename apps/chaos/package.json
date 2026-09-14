@@ -1,0 +1,8 @@
+{
+  "name": "kit-chaos",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Stop/start sink containers from the UI (demo only: needs the Docker socket)",
+  "scripts": { "start": "node server.js" }
+}
