@@ -31,6 +31,6 @@ verify:        ## run the five gates and print the report
 logs:
 	docker compose logs -f --tail=200 pipeline consumer
 
-test:          ## unit tests
-	cd apps/pipeline && npm test
-	cd apps/consumer && npm test
+test:          ## unit tests (needs Node 20+; installs dev deps on first run)
+	cd apps/pipeline && npm install --no-audit --no-fund --silent && npm test
+	cd apps/consumer && npm install --no-audit --no-fund --silent && npm test

@@ -26,7 +26,7 @@ Full log of that run: [`docs/verify-report.txt`](docs/verify-report.txt) (summar
 ## 1. Running it
 
 Prerequisites: Docker Desktop (give it ≥ 6 GB RAM; Elasticsearch alone takes 2 GB), `make`, `curl`, `jq`, `perl`
-(present on macOS/Linux). Nothing else — Node is only needed if you want to run the unit tests outside Docker.
+(present on macOS/Linux). Nothing else — Node 20+ is only needed for `make test` (unit tests run outside Docker).
 
 ```bash
 make up          # docker compose up -d --build   (postgres, elasticsearch, rabbitmq, pipeline, consumer, chaos, ui)
